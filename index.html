@@ -1,0 +1,568 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Neon Runner: Ammo Update</title>
+    <style>
+        /* --- CSS STYLES --- */
+        body { margin: 0; overflow: hidden; background-color: #020205; font-family: 'Segoe UI', sans-serif; user-select: none; }
+        
+        #ui-layer {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            pointer-events: none; display: flex; flex-direction: column; z-index: 10;
+        }
+
+        /* --- STATS HUD --- */
+        #hud {
+            padding: 20px; display: flex; justify-content: space-between; align-items: flex-start;
+            opacity: 0; transition: opacity 0.5s;
+        }
+        .stat-group { display: flex; gap: 20px; }
+        
+        .stat-box {
+            background: rgba(0, 0, 0, 0.7); border: 2px solid #555;
+            padding: 10px 25px; color: #fff; font-weight: 800; font-size: 1.5rem;
+            border-radius: 6px; text-shadow: 0 0 5px #fff; display: flex; align-items: center;
+        }
+
+        /* AMMO STYLE */
+        #ammo-display { border-color: #d100ff; color: #d100ff; text-shadow: 0 0 10px #d100ff; }
+        
+        /* NITRO BAR */
+        #nitro-wrapper { position: absolute; bottom: 30px; right: 30px; text-align: right; }
+        #nitro-container {
+            width: 300px; height: 30px;
+            border: 2px solid #555; background: rgba(0,0,0,0.5);
+            transform: skewX(-20deg); display: inline-block;
+        }
+        #nitro-fill {
+            width: 0%; height: 100%;
+            background: linear-gradient(90deg, #0055ff, #00ffff);
+            transition: width 0.1s linear;
+            box-shadow: 0 0 20px #00ffff;
+        }
+        #nitro-text {
+            color: #555; font-style: italic; font-weight: bold; font-size: 1.2rem;
+            margin-bottom: 5px; letter-spacing: 2px;
+        }
+
+        /* NOTIFICATIONS */
+        .center-notify {
+            position: absolute; top: 30%; width: 100%; text-align: center;
+            font-size: 3rem; font-weight: 900; font-style: italic;
+            text-shadow: 0 0 30px currentColor;
+            opacity: 0; transition: opacity 0.5s, transform 0.5s;
+            transform: scale(0.5);
+        }
+        .notify-active { opacity: 1; transform: scale(1.2); }
+
+        /* MENUS */
+        .menu-screen {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(2, 2, 5, 0.95);
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            pointer-events: auto; backdrop-filter: blur(10px); transition: opacity 0.3s;
+        }
+        .hidden { opacity: 0; pointer-events: none; }
+
+        h1 { color: #fff; font-size: 5rem; margin: 0; font-style: italic; letter-spacing: -3px; transform: skewX(-10deg); text-shadow: 4px 4px 0 #6600cc; }
+        button {
+            background: transparent; color: #fff; border: 2px solid #00ffff;
+            padding: 20px 60px; font-size: 1.5rem; font-weight: bold;
+            cursor: pointer; margin: 10px; transform: skewX(-10deg);
+            transition: 0.2s; text-transform: uppercase;
+        }
+        button:hover { background: #00ffff; color: #000; box-shadow: 0 0 40px #00ffff; }
+
+        #loader {
+            position: absolute; z-index: 999; width: 100%; height: 100%;
+            background: #000; display: flex; align-items: center; justify-content: center;
+            color: #00ffff; font-size: 1.5rem; letter-spacing: 5px;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="loader">LOADING ASSETS...</div>
+
+    <div id="ui-layer">
+        <div id="hud">
+            <div class="stat-group">
+                <div class="stat-box" id="score-display">SCORE: 0</div>
+                <div class="stat-box" id="ammo-display">AMMO: 10</div>
+            </div>
+            <div class="stat-box" id="level-indicator" style="border-color: #00ff00; color: #00ff00;">LEVEL 1</div>
+        </div>
+
+        <div id="msg-general" class="center-notify" style="color: #fff;">ALERT</div>
+
+        <div id="nitro-wrapper">
+            <div id="nitro-text">NITRO OFFLINE</div>
+            <div id="nitro-container">
+                <div id="nitro-fill"></div>
+            </div>
+        </div>
+
+        <div id="main-menu" class="menu-screen">
+            <h1>NEON RUNNER</h1>
+            <h3 style="color:#aaa; letter-spacing: 2px;">AMMO & NITRO EDITION</h3>
+            <button onclick="startGame()">START MISSION</button>
+        </div>
+
+        <div id="game-over" class="menu-screen hidden">
+            <h1 style="color:#ff0055;">MISSION FAILED</h1>
+            <h2 id="final-score" style="color:white;">SCORE: 0</h2>
+            <div>
+                <button onclick="goToMenu()">Menu</button>
+                <button onclick="startGame()">Retry</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="canvas-container"></div>
+
+    <script type="importmap">
+        { "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js" } }
+    </script>
+
+    <script type="module">
+        import * as THREE from 'three';
+
+        // --- CONSTANTS ---
+        const LEVELS = {
+            1: { name: "SECTOR 1", speed: 0.5, spawnRate: 1.5, color: 0x00ff00, duration: 25 },
+            2: { name: "SECTOR 2", speed: 0.8, spawnRate: 1.2, color: 0xffaa00, duration: 60 },
+            3: { name: "SECTOR 3", speed: 1.2, spawnRate: 0.8, color: 0xff0055, duration: 999 }
+        };
+        
+        const GLOBALS = {
+            laneWidth: 3.5,
+            boostMult: 2.8,       
+            boostDrain: 30,       
+            nitroRefill: 50,      
+            ammoRefill: 5,
+            nitroUnlockScore: 50 // Unlocks quickly
+        };
+
+        // --- STATE ---
+        const state = {
+            isRunning: false, isPaused: true,
+            score: 0, 
+            gameTime: 0,
+            currentLevel: 1,
+            speed: 0,
+            lane: 0, targetX: 0,
+            nitro: 0, 
+            ammo: 10, // Start with 10 bullets
+            nitroUnlocked: false,
+            isBoosting: false
+        };
+
+        // Reusable Collision Boxes (Prevents Memory Leaks)
+        const _pBox = new THREE.Box3();
+        const _oBox = new THREE.Box3();
+        const _bBox = new THREE.Box3();
+
+        // --- SCENE ---
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x020205);
+        scene.fog = new THREE.FogExp2(0x020205, 0.025);
+
+        const camera = new THREE.PerspectiveCamera(70, window.innerWidth/window.innerHeight, 0.1, 150);
+        camera.position.set(0, 3.5, 8);
+        
+        const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+        document.getElementById('canvas-container').appendChild(renderer.domElement);
+
+        scene.add(new THREE.HemisphereLight(0xffffff, 0x000000, 0.8));
+        const dirLight = new THREE.DirectionalLight(0xffffff, 1);
+        dirLight.position.set(10, 20, 10);
+        scene.add(dirLight);
+
+        // --- ASSETS ---
+        // Player Ship
+        const player = new THREE.Group();
+        const body = new THREE.Mesh(
+            new THREE.ConeGeometry(0.5, 2.5, 8),
+            new THREE.MeshStandardMaterial({ color: 0x00aaff, roughness: 0.2, metalness: 0.8 })
+        );
+        body.rotation.x = Math.PI/2;
+        player.add(body);
+        
+        // Flames
+        const flameGeo = new THREE.ConeGeometry(0.2, 1, 4);
+        flameGeo.rotateX(-Math.PI/2);
+        const flameMat = new THREE.MeshBasicMaterial({ color: 0xffaa00, transparent: true, opacity: 0.8 });
+        const leftFlame = new THREE.Mesh(flameGeo, flameMat); leftFlame.position.set(-0.8, 0, 1.5);
+        const rightFlame = new THREE.Mesh(flameGeo, flameMat); rightFlame.position.set(0.8, 0, 1.5);
+        player.add(leftFlame, rightFlame);
+        player.position.y = 1;
+        scene.add(player);
+
+        // World
+        const grid = new THREE.GridHelper(400, 80, 0x0044ff, 0x001133);
+        grid.position.z = -100;
+        scene.add(grid);
+        const floor = new THREE.Mesh(
+            new THREE.PlaneGeometry(500, 500),
+            new THREE.MeshStandardMaterial({ color: 0x050510, roughness: 0.8 })
+        );
+        floor.rotation.x = -Math.PI/2; floor.position.z = -100;
+        scene.add(floor);
+
+        // --- OBJECT POOLS ---
+        const obstacles = [];
+        const bullets = [];
+        const nitroTanks = [];
+        const ammoPacks = [];
+        const speedLines = [];
+
+        // Obstacles (Red Boxes)
+        const obsGeo = new THREE.BoxGeometry(2, 2, 2);
+        const obsMat = new THREE.MeshStandardMaterial({ color: 0x00ff00 }); 
+        for(let i=0; i<15; i++) {
+            const m = new THREE.Mesh(obsGeo, obsMat.clone());
+            m.position.y = -500; scene.add(m); obstacles.push({ mesh: m, active: false });
+        }
+
+        // Bullets (Yellow Lasers)
+        const bulGeo = new THREE.CapsuleGeometry(0.1, 1.5, 4, 8); bulGeo.rotateX(Math.PI/2);
+        const bulMat = new THREE.MeshBasicMaterial({ color: 0xffff00 });
+        for(let i=0; i<10; i++) {
+            const m = new THREE.Mesh(bulGeo, bulMat); m.visible=false; scene.add(m); bullets.push({ mesh: m, active: false });
+        }
+
+        // Nitro Tanks (Blue Cylinders)
+        const tankGeo = new THREE.CylinderGeometry(0.3, 0.3, 1.5, 8);
+        const tankMat = new THREE.MeshStandardMaterial({ color: 0x00ffff, emissive: 0x0044aa, metalness: 0.8 });
+        for(let i=0; i<5; i++) {
+            const m = new THREE.Mesh(tankGeo, tankMat); m.rotation.z=Math.PI/4; m.visible=false; scene.add(m); nitroTanks.push({ mesh: m, active: false });
+        }
+
+        // Ammo Packs (Purple Cubes)
+        const ammoGeo = new THREE.BoxGeometry(1, 1, 1);
+        const ammoMat = new THREE.MeshStandardMaterial({ color: 0xd100ff, emissive: 0x440055, wireframe: true });
+        for(let i=0; i<5; i++) {
+            const m = new THREE.Mesh(ammoGeo, ammoMat); 
+            // Add a floating text or visual indicator if desired, simple box for now
+            m.visible = false; scene.add(m); ammoPacks.push({ mesh: m, active: false });
+        }
+
+        // Star Lines
+        const lineGeo = new THREE.BoxGeometry(0.05, 0.05, 4);
+        const lineMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.4 });
+        for(let i=0; i<60; i++) {
+            const m = new THREE.Mesh(lineGeo, lineMat); m.position.set((Math.random()-0.5)*40, (Math.random()-0.5)*20, -50); scene.add(m); speedLines.push({ mesh: m, speedOffset: Math.random() });
+        }
+
+        // --- GAME LOGIC ---
+
+        window.startGame = () => {
+            document.getElementById('main-menu').classList.add('hidden');
+            document.getElementById('game-over').classList.add('hidden');
+            document.getElementById('hud').style.opacity = 1;
+            document.getElementById('nitro-wrapper').style.opacity = 1;
+            resetGame();
+        };
+
+        window.goToMenu = () => {
+            document.getElementById('game-over').classList.add('hidden');
+            document.getElementById('main-menu').classList.remove('hidden');
+            document.getElementById('hud').style.opacity = 0;
+            state.isRunning = false;
+        };
+
+        function resetGame() {
+            state.score = 0;
+            state.gameTime = 0;
+            state.currentLevel = 1;
+            state.lane = 0;
+            state.targetX = 0;
+            state.nitro = 0; 
+            state.ammo = 10; // Reset Ammo
+            state.nitroUnlocked = false;
+            state.isRunning = true;
+            state.isPaused = false;
+            
+            applyLevel(1);
+
+            // Hide all objects
+            obstacles.forEach(o => { o.active = false; o.mesh.position.y = -500; });
+            bullets.forEach(b => { b.active = false; b.mesh.visible = false; });
+            nitroTanks.forEach(p => { p.active = false; p.mesh.visible = false; });
+            ammoPacks.forEach(a => { a.active = false; a.mesh.visible = false; });
+            
+            // Reset UI
+            document.getElementById('nitro-text').innerText = "NITRO OFFLINE";
+            document.getElementById('nitro-text').style.color = "#555";
+            document.getElementById('nitro-container').style.borderColor = "#555";
+            document.getElementById('nitro-fill').style.width = "0%";
+            
+            updateUI();
+        }
+
+        function applyLevel(lvl) {
+            state.currentLevel = lvl;
+            const data = LEVELS[lvl];
+            
+            const ind = document.getElementById('level-indicator');
+            ind.innerText = data.name;
+            ind.style.color = '#' + data.color.toString(16);
+            ind.style.borderColor = '#' + data.color.toString(16);
+            
+            obstacles.forEach(o => o.mesh.material.color.setHex(data.color));
+            if(lvl > 1) showNotification(`LEVEL UP: ${data.name}`, '#00ff00');
+        }
+
+        function checkLevelProgression(dt) {
+            state.gameTime += dt;
+            const lvl = state.currentLevel;
+            if(lvl === 1 && state.gameTime > LEVELS[1].duration) applyLevel(2);
+            if(lvl === 2 && state.gameTime > LEVELS[2].duration) applyLevel(3);
+        }
+
+        function showNotification(text, color) {
+            const el = document.getElementById('msg-general');
+            el.innerText = text;
+            el.style.color = color || '#fff';
+            el.style.textShadow = `0 0 30px ${color || '#fff'}`;
+            el.classList.add('notify-active');
+            setTimeout(() => el.classList.remove('notify-active'), 2000);
+        }
+
+        // --- CONTROLS ---
+        window.addEventListener('keydown', e => {
+            if(!state.isRunning) return;
+
+            // FIX: Prevent default action for Space/Arrows to stop browser scrolling/restarting
+            if(['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].indexOf(e.code) > -1) {
+                e.preventDefault();
+            }
+
+            if(e.key === 'ArrowLeft' && state.lane > -1) state.lane--;
+            if(e.key === 'ArrowRight' && state.lane < 1) state.lane++;
+            if(e.code === 'Space') fireBullet();
+            if(e.key === 'Shift') state.isBoosting = true;
+            state.targetX = state.lane * GLOBALS.laneWidth;
+        });
+        window.addEventListener('keyup', e => { if(e.key === 'Shift') state.isBoosting = false; });
+
+        function fireBullet() {
+            // CHECK AMMO
+            if(state.ammo <= 0) {
+                // Click sound or visual feedback for no ammo could go here
+                return;
+            }
+
+            const b = bullets.find(x => !x.active);
+            if(b) { 
+                b.active = true; 
+                b.mesh.visible = true; 
+                b.mesh.position.copy(player.position); 
+                b.mesh.position.z -= 1;
+                
+                // Deduct Ammo
+                state.ammo--;
+                updateUI();
+            }
+        }
+
+        function spawnEntity(pool, yPos) {
+            const item = pool.find(x => !x.active);
+            if(item) {
+                item.active = true;
+                item.mesh.visible = true;
+                item.mesh.position.set((Math.floor(Math.random()*3)-1) * GLOBALS.laneWidth, yPos, -120);
+            }
+        }
+
+        function gameOver() {
+            state.isRunning = false;
+            document.getElementById('final-score').innerText = `SCORE: ${Math.floor(state.score)}`;
+            document.getElementById('game-over').classList.remove('hidden');
+        }
+
+        function updateUI() {
+            document.getElementById('score-display').innerText = `SCORE: ${Math.floor(state.score)}`;
+            document.getElementById('ammo-display').innerText = `AMMO: ${state.ammo}`;
+            
+            // Nitro Bar Logic
+            document.getElementById('nitro-fill').style.width = `${state.nitro}%`;
+            const bar = document.getElementById('nitro-fill');
+            if(state.isBoosting) {
+                bar.style.background = '#fff';
+                bar.style.boxShadow = '0 0 40px #fff';
+            } else {
+                bar.style.background = 'linear-gradient(90deg, #0055ff, #00ffff)';
+                bar.style.boxShadow = '0 0 20px #00ffff';
+            }
+        }
+
+        // --- MAIN LOOP ---
+        const clock = new THREE.Clock();
+        let spawnTimer = 0;
+        let tankTimer = 0;
+        let ammoTimer = 0;
+
+        function animate() {
+            requestAnimationFrame(animate);
+            if(!state.isRunning || state.isPaused) { renderer.render(scene, camera); return; }
+
+            const dt = Math.min(clock.getDelta(), 0.1);
+            
+            // LOGIC
+            checkLevelProgression(dt);
+            const levelData = LEVELS[state.currentLevel];
+
+            // NITRO UNLOCK
+            if(!state.nitroUnlocked && state.score > GLOBALS.nitroUnlockScore) {
+                state.nitroUnlocked = true;
+                document.getElementById('nitro-text').innerText = "NITRO ONLINE";
+                document.getElementById('nitro-text').style.color = "#00ffff";
+                document.getElementById('nitro-container').style.borderColor = "#fff";
+                showNotification("NITRO UNLOCKED", "#00ffff");
+            }
+
+            // SPEED
+            let targetSpeed = levelData.speed; 
+            if(state.isBoosting && state.nitro > 0) {
+                targetSpeed *= GLOBALS.boostMult;
+                state.nitro -= GLOBALS.boostDrain * dt;
+                
+                camera.fov = THREE.MathUtils.lerp(camera.fov, 110, dt * 3);
+                camera.position.x += (Math.random() - 0.5) * 0.15; 
+                
+                if(state.nitro <= 0) state.isBoosting = false;
+            } else {
+                state.isBoosting = false;
+                camera.fov = THREE.MathUtils.lerp(camera.fov, 70, dt * 3);
+                camera.position.x = THREE.MathUtils.lerp(camera.position.x, 0, dt * 3);
+            }
+            state.speed = THREE.MathUtils.lerp(state.speed, targetSpeed, dt * 2);
+            camera.updateProjectionMatrix();
+            updateUI();
+
+            // MOVEMENT
+            player.position.x += (state.targetX - player.position.x) * (10 * dt);
+            player.rotation.z = (player.position.x - state.targetX) * -0.15;
+            
+            const flameScale = state.isBoosting ? 3.0 : 1.0;
+            leftFlame.scale.setScalar(flameScale + Math.random()*0.5);
+            rightFlame.scale.setScalar(flameScale + Math.random()*0.5);
+
+            grid.position.z += state.speed;
+            if(grid.position.z > 0) grid.position.z = -100;
+
+            speedLines.forEach(l => {
+                l.mesh.position.z += state.speed * (2 + l.speedOffset);
+                l.mesh.scale.z = state.isBoosting ? 20 : 2;
+                if(l.mesh.position.z > 10) {
+                    l.mesh.position.z = -100;
+                    l.mesh.position.x = (Math.random()-0.5)*50;
+                    l.mesh.position.y = (Math.random()-0.5)*30;
+                }
+            });
+
+            // SPAWNING SYSTEM
+            spawnTimer += dt;
+            const currentSpawnRate = Math.max(0.4, levelData.spawnRate - (state.score * 0.0001));
+            const realSpawnRate = state.isBoosting ? currentSpawnRate / 2 : currentSpawnRate;
+            if(spawnTimer > realSpawnRate) { 
+                spawnEntity(obstacles, 1); 
+                spawnTimer = 0; 
+            }
+
+            // ITEMS SPAWNING
+            if(state.nitroUnlocked) {
+                tankTimer += dt;
+                // Spawn Nitro every 3s
+                if(tankTimer > 3.0) { spawnEntity(nitroTanks, 1.5); tankTimer = 0; }
+            }
+
+            // Spawn Ammo every 5s
+            ammoTimer += dt;
+            if(ammoTimer > 5.0) { spawnEntity(ammoPacks, 1.2); ammoTimer = 0; }
+
+            // COLLISIONS
+            _pBox.setFromObject(player).expandByScalar(-0.5);
+
+            // 1. OBSTACLES (Red)
+            obstacles.forEach(o => {
+                if(o.active) {
+                    o.mesh.position.z += state.speed;
+                    if(o.mesh.position.z > 10) { o.active = false; state.score += 10 * (state.isBoosting ? 2 : 1); }
+                    
+                    _oBox.setFromObject(o.mesh).expandByScalar(-0.2);
+                    if(_pBox.intersectsBox(_oBox)) gameOver();
+                }
+            });
+
+            // 2. NITRO TANKS (Blue)
+            nitroTanks.forEach(t => {
+                if(t.active) {
+                    t.mesh.position.z += state.speed;
+                    t.mesh.rotation.y += dt * 3; t.mesh.rotation.x += dt;
+                    if(t.mesh.position.z > 10) { t.active = false; t.mesh.visible = false; }
+
+                    _oBox.setFromObject(t.mesh);
+                    if(_pBox.intersectsBox(_oBox)) {
+                        t.active = false; t.mesh.visible = false;
+                        state.nitro = Math.min(100, state.nitro + GLOBALS.nitroRefill);
+                        state.score += 100;
+                    }
+                }
+            });
+
+            // 3. AMMO PACKS (Purple)
+            ammoPacks.forEach(a => {
+                if(a.active) {
+                    a.mesh.position.z += state.speed;
+                    a.mesh.rotation.y += dt; a.mesh.rotation.z += dt;
+                    if(a.mesh.position.z > 10) { a.active = false; a.mesh.visible = false; }
+
+                    _oBox.setFromObject(a.mesh);
+                    if(_pBox.intersectsBox(_oBox)) {
+                        a.active = false; a.mesh.visible = false;
+                        state.ammo += GLOBALS.ammoRefill;
+                        showNotification("+5 AMMO", "#d100ff");
+                        updateUI();
+                    }
+                }
+            });
+
+            // 4. BULLETS (Yellow)
+            bullets.forEach(b => {
+                if(b.active) {
+                    b.mesh.position.z -= 2;
+                    if(b.mesh.position.z < -100) { b.active = false; b.mesh.visible = false; }
+                    
+                    _bBox.setFromObject(b.mesh);
+                    obstacles.forEach(o => {
+                        if(o.active) {
+                            _oBox.setFromObject(o.mesh);
+                            if(_bBox.intersectsBox(_oBox)) {
+                                o.active = false; o.mesh.position.y = -500;
+                                b.active = false; b.mesh.visible = false;
+                                state.score += 50;
+                            }
+                        }
+                    });
+                }
+            });
+
+            renderer.render(scene, camera);
+        }
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth/window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+        window.onload = () => { setTimeout(() => { document.getElementById('loader').style.display = 'none'; }, 800); };
+        animate();
+    </script>
+</body>
+</html>
